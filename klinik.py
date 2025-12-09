@@ -67,11 +67,11 @@ class BasisKasus:
         self.muatan_kasus()
 
     def muatan_dari_csv(self, jalur_csv: str):
-        if not os.path.exists(jalur_csv):
-            st.error(f"File CSV tidak ditemukan: {jalur_csv}")
+        if not os.path.exists("veterinary_clinical_data.csv"):
+            st.error(f"File CSV tidak ditemukan: {"veterinary_clinical_data.csv"}")
             return
         
-        df = pd.read_csv(jalur_csv)
+        df = pd.read_csv("veterinary_clinical_data.csv")
         self.kasus_list = []
 
         peta_diagnosa = {
