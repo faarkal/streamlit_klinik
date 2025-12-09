@@ -5,6 +5,15 @@ from typing import Dict, List
 import numpy as np
 import os
 
+# Base dir of the app (useful when deployed where CWD may differ)
+BASE_DIR = os.path.dirname(__file__)
+
+
+@st.cache_data
+def _read_csv_cached(path: str) -> pd.DataFrame:
+    """Read CSV with caching. Path should be absolute."""
+    return pd.read_csv(path)
+
 # CSS untuk styling
 st.markdown("""
 <style>
@@ -62,16 +71,23 @@ class Kasus:
 
 class BasisKasus:
     def __init__(self, nama_file="basis_kasus_hewan.json"):
-        self.nama_file = nama_file
+        # store JSON file path relative to app directory for deploy compatibility
+        self.nama_file = os.path.join(BASE_DIR, nama_file)
         self.kasus_list: List[Kasus] = []
         self.muatan_kasus()
 
     def muatan_dari_csv(self, jalur_csv: str):
-        if not os.path.exists("veterinary_clinical_data.csv"):
-            st.error(f"File CSV tidak ditemukan: {"veterinary_clinical_data.csv"}")
+        # resolve path relative to app directory
+        csv_path = os.path.join(BASE_DIR, jalur_csv)
+        if not os.path.exists(csv_path):
+            st.error(f"File CSV tidak ditemukan: {csv_path}")
             return
-        
-        df = pd.read_csv("veterinary_clinical_data.csv")
+
+        try:
+            df = _read_csv_cached(csv_path)
+        except Exception as e:
+            st.error(f"Gagal membaca CSV: {e}")
+            return
         self.kasus_list = []
 
         peta_diagnosa = {
@@ -83,11 +99,15 @@ class BasisKasus:
             'parasites': ['Weight loss', 'Diarrhea', 'Scratching']
         }
 
+        # Normalisasi peta diagnosa ke lowercase agar cocok dengan gejala yang
+        # sudah dinormalisasi (lowercase) saat dimuat dari CSV / input user.
+        peta_diagnosa = {k: [s.lower() for s in v] for k, v in peta_diagnosa.items()}
+
         for idx, row in df.iterrows():
             gejala = []
             for kol in ['Symptom_1', 'Symptom_2', 'Symptom_3', 'Symptom_4', 'Symptom_5']:
-                if pd.notna(row[kol]) and str(row[kol]).strip():
-                    gejala.append(str(row[kol]).strip())
+                if kol in row and pd.notna(row[kol]) and str(row[kol]).strip():
+                    gejala.append(str(row[kol]).strip().lower())
 
             diagnosa = "Diagnosa tidak diketahui"
             for penyakit, lista_gejala in peta_diagnosa.items():
@@ -121,11 +141,19 @@ class BasisKasus:
         try:
             if os.path.exists(self.nama_file):
                 with open(self.nama_file, "r") as file:
-                    data = json.load(file)
-                    self.kasus_list = [Kasus.dari_dict(item) for item in data]
+                    try:
+                        data = json.load(file)
+                        self.kasus_list = [Kasus.dari_dict(item) for item in data]
+                    except json.JSONDecodeError:
+                        # file may be empty or invalid on deploy; start with empty list
+                        self.kasus_list = []
         except Exception as e:
             st.warning(f"File JSON tidak valid: {e}")
             self.kasus_list = []
+
+        # Normalisasi gejala ke lowercase untuk konsistensi matching
+        for kasus in self.kasus_list:
+            kasus.gejala = [g.lower() for g in kasus.gejala]
 
     def simpan_kasus(self):
         with open(self.nama_file, "w") as file:
@@ -184,7 +212,7 @@ def main():
         st.session_state.cbr = CBR(st.session_state.basis_kasus)
         st.session_state.csv_loaded = False
     
-    tab1, tab2, tab3 = st.tabs(["📋 Diagnosa Baru", "📊 Lihat Kasus"])
+    tab1, tab2 = st.tabs(["📋 Diagnosa Baru", "📊 Lihat Kasus"])
     
     with tab1:
         st.header("Input Kasus Baru")
@@ -199,11 +227,11 @@ def main():
             riwayat_medis = st.text_area("Riwayat Medis", height=80, placeholder="Sehat/Normal")
         
         gejala_input = st.text_area("Gejala (pisahkan dengan koma)", 
-                                  placeholder="Vomiting, Diarrhea, Lethargy", height=100)
+                      placeholder="Vomiting, Diarrhea, Lethargy", height=100)
         
         if st.button("Lakukan Diagnosa", type="primary"):
             if nama_hewan and gejala_input:
-                gejala_list = [g.strip() for g in gejala_input.split(",") if g.strip()]
+                gejala_list = [g.strip().lower() for g in gejala_input.split(",") if g.strip()]
                 
                 kasus_baru = Kasus("BARU", nama_hewan, ras or "Tidak diketahui", 
                                  umur, berat, riwayat_medis or "Tidak ada", gejala_list, "")
@@ -211,6 +239,9 @@ def main():
                 with st.spinner("Mencari kasus serupa..."):
                     kasus_terdekat = st.session_state.cbr.ambil_kasus_terdekat(kasus_baru)
                     
+                    if not st.session_state.basis_kasus.dapatkan_semua_kasus():
+                        st.warning("Basis kasus kosong — muat data dari CSV di tab '📊 Lihat Kasus' terlebih dahulu.")
+                        kasus_terdekat = []
                     if kasus_terdekat:
                         solusi = st.session_state.cbr.gunakan_solusi(kasus_terdekat)
                         
@@ -241,6 +272,10 @@ def main():
     
     with tab2:
         st.header("Statistik Kasus")
+        if st.button("Muat Kasus dari CSV (veterinary_clinical_data.csv)"):
+            st.session_state.basis_kasus.muatan_dari_csv("veterinary_clinical_data.csv")
+            st.session_state.csv_loaded = True
+        
         total_kasus = len(st.session_state.basis_kasus.dapatkan_semua_kasus())
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Kasus", total_kasus)
