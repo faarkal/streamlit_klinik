@@ -11,26 +11,9 @@ BASE_DIR = os.path.dirname(__file__)
 
 @st.cache_data
 def _read_csv_cached(path: str) -> pd.DataFrame:
-    """Read CSV with caching. Path should be absolute."""
     return pd.read_csv(path)
 
-# CSS untuk styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 5px solid #1f77b4;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Styling removed per user request
 
 class Kasus:
     def __init__(self, id_kasus: str, nama_hewan: str, ras: str, umur: float, berat: float,
